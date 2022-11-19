@@ -3,11 +3,12 @@ pragma solidity 0.8.17;
 
 import { ISimpleSwap } from "./interface/ISimpleSwap.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "hardhat/console.sol";
 
 contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
-    address public tokenA;
-    address public tokenB;
+    ERC20 public tokenA;
+    ERC20 public tokenB;
     uint private reserveA;
     uint private reserveB;
     constructor(address token0, address token1) {
@@ -15,8 +16,10 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
         require(token1 != address(0), "SimpleSwap: TOKENB_IS_NOT_CONTRACT");
         require(token0 != token1, "SimpleSwap: TOKENA_TOKENB_IDENTICAL_ADDRESS");
 
-        tokenA = uint160(token0) < uint160(token1) ? token0 : token1;
-        tokenB = uint160(token0) < uint160(token1) ? token1 : token0;
+        address addressTokenA = uint160(token0) < uint160(token1) ? token0 : token1;
+        address addressTokenB = uint160(token0) < uint160(token1) ? token1 : token0;
+        tokenA = ERC20(addressTokenA);
+        tokenB = ERC20(addressTokenB);
     }
     /// @notice Swap tokenIn for tokenOut with amountIn
     /// @param tokenIn The address of the token to swap from
@@ -39,11 +42,35 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
         external
         override
         returns (
-            uint256 amountA,
-            uint256 amountB,
-            uint256 liquidity
+            uint256,
+            uint256,
+            uint256
         ){
-            require(amountA != 0 && amountB != 0, "SimpleSwap: INSUFFICIENT_INPUT_AMOUNT");
+            require(amountAIn != 0 && amountBIn != 0, "SimpleSwap: INSUFFICIENT_INPUT_AMOUNT");
+            // transfer tokenA & token B
+            
+            uint actualAmountA;
+            uint actualAmountB;
+
+            if (totalSupply() == 0) {
+                actualAmountA = amountAIn;
+                actualAmountB = amountBIn;
+            } else {
+                actualAmountA = Math.min(amountAIn, amountBIn / reserveB * reserveA);
+                actualAmountB = Math.min(amountBIn, amountAIn / reserveA * reserveB);
+            }
+
+            uint finalAmountA = transferInAmount(tokenA, msg.sender, actualAmountA);
+            uint finalAmountB = transferInAmount(tokenB, msg.sender, actualAmountB);
+            uint liquidity = Math.sqrt(finalAmountA * finalAmountB);
+
+            _mint(msg.sender, liquidity);
+            reserveA += finalAmountA;
+            reserveB += finalAmountB;
+
+            emit AddLiquidity(msg.sender, finalAmountA, finalAmountB, liquidity);
+            
+            return (finalAmountA, finalAmountB, liquidity);
         }
 
     /// @notice Remove liquidity from the pool
@@ -55,19 +82,27 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
     /// @notice Get the reserves of the pool
     /// @return reserveA The reserve of tokenA
     /// @return reserveB The reserve of tokenB
-    function getReserves() external override view returns (uint256 reserveA, uint256 reserveB){
+    function getReserves() external override view returns (uint256, uint256){
         return (reserveA, reserveB);
     }
 
     /// @notice Get the address of tokenA
     /// @return tokenAddress The address of tokenA
     function getTokenA() external override view returns (address tokenAddress){
-        return tokenA;
+        return address(tokenA);
     }
 
     /// @notice Get the address of tokenB
     /// @return tokenAddress The address of tokenB
     function getTokenB() external override view returns (address tokenAddress){
-        return tokenB;
+        return address(tokenB);
+    }
+
+    function transferInAmount(ERC20 token, address from, uint256 amount) internal returns (uint actualAmount) {
+        uint balance = token.balanceOf(address(this));
+        bool success = token.transferFrom(from, address(this), amount);
+        require(success, "ERC20 transfer fail");
+        uint newBalance = token.balanceOf(address(this));
+        return newBalance - balance;
     }
 }

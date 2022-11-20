@@ -104,7 +104,24 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
     /// @param liquidity The amount of liquidity to remove
     /// @return amountA The amount of tokenA received
     /// @return amountB The amount of tokenB received
-    function removeLiquidity(uint256 liquidity) external override returns (uint256 amountA, uint256 amountB){}
+    function removeLiquidity(uint256 liquidity) external override returns (uint256, uint256){
+        require(liquidity != 0, "SimpleSwap: INSUFFICIENT_LIQUIDITY_BURNED");
+
+        uint amountA = liquidity * reserveA / totalSupply();
+        uint amountB = liquidity * reserveB / totalSupply();
+
+        reserveA -= amountA;
+        reserveB -= amountB;
+        
+        _transfer(msg.sender, address(this), liquidity);
+        _burn(address(this), liquidity);
+        tokenA.transfer(msg.sender, amountA);
+        tokenB.transfer(msg.sender, amountB);
+
+        emit RemoveLiquidity(msg.sender, amountA, amountB, liquidity);
+
+        return (amountA, amountB);
+    }
 
     /// @notice Get the reserves of the pool
     /// @return reserveA The reserve of tokenA

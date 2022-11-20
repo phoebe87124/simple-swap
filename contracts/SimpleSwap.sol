@@ -30,7 +30,33 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
         address tokenIn,
         address tokenOut,
         uint256 amountIn
-    ) external override returns (uint256 amountOut){}
+    ) external override returns (uint256){
+        require(tokenIn == address(tokenA) || tokenIn == address(tokenB), "SimpleSwap: INVALID_TOKEN_IN");
+        require(tokenOut == address(tokenA) || tokenOut == address(tokenB), "SimpleSwap: INVALID_TOKEN_OUT");
+        require(tokenIn != tokenOut, "SimpleSwap: IDENTICAL_ADDRESS");
+        require(amountIn != 0, "SimpleSwap: INSUFFICIENT_INPUT_AMOUNT");
+
+        uint actualAmountIn = transferInAmount(ERC20(tokenIn), msg.sender, amountIn);
+        uint amountOut = tokenIn == address(tokenA) ? 
+                         reserveB - reserveA * reserveB / (reserveA + actualAmountIn)
+                       : reserveA - reserveA * reserveB / (reserveB + actualAmountIn);
+        require(amountOut != 0, "SimpleSwap: INSUFFICIENT_OUTPUT_AMOUNT");
+
+        bool success = ERC20(tokenOut).transfer(msg.sender, amountOut);
+        require(success, "ERC20 transfer out fail");
+
+        if (tokenIn == address(tokenA)) {
+            reserveA += actualAmountIn;
+            reserveB -= amountOut;
+        } else {
+            reserveB += actualAmountIn;
+            reserveA -= amountOut;
+        }
+        
+        emit Swap(msg.sender, tokenIn, tokenOut, actualAmountIn, amountOut);
+
+        return amountOut;
+    }
 
     /// @notice Add liquidity to the pool
     /// @param amountAIn The amount of tokenA to add
@@ -56,8 +82,9 @@ contract SimpleSwap is ISimpleSwap, ERC20("lpToken", "LP") {
                 actualAmountA = amountAIn;
                 actualAmountB = amountBIn;
             } else {
-                actualAmountA = Math.min(amountAIn, amountBIn / reserveB * reserveA);
-                actualAmountB = Math.min(amountBIn, amountAIn / reserveA * reserveB);
+                // mul before div
+                actualAmountA = Math.min(amountAIn, amountBIn * reserveA / reserveB);
+                actualAmountB = Math.min(amountBIn, amountAIn * reserveB / reserveA);
             }
 
             uint finalAmountA = transferInAmount(tokenA, msg.sender, actualAmountA);
